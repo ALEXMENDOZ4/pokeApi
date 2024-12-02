@@ -12,63 +12,79 @@ import pokebola from '../../assets/pokebola.gif';
 import useLoading from '../../shared/hook/useLoading';
 
 const Home = () => {
-  const [pokemons, setPokemons] = useState<Ipokemon[]>([]);
+  const [allPokemons, setAllPokemons] = useState<Ipokemon[]>([]);
+  const [currentPokemons, setCurrentPokemons] = useState<Ipokemon[]>([]);
   const [filteredPokemons, setFilteredPokemons] = useState<Ipokemon[]>([]);
-  const [nextUrl, setNextUrl] = useState<string | null>(null);
-  const [prevUrl, setPrevUrl] = useState<string | null>(null);
-  const [alertShown, setAlertShown] = useState(false);
   const [text, setText] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);  
+  const [totalPages, setTotalPages] = useState(0);
 
   const { loading, setLoading } = useLoading();
   const navigate = useNavigate();
-
-  type skipImage = Omit<Ipokemon, "image">;
+  const itemsPerPage = 20;
 
   useEffect(() => {
-    fetchPokemosWithImages(URL);
+    fetchAllPokemons();
   }, []);
 
-  const fetchPokemosWithImages = async (url: string) => {
+  const fetchAllPokemons = async () => {
     setLoading(true);
-
+    const allPokemons: Ipokemon[] = [];
+    let nextUrl: string | null = URL;
+  
     try {
-      const response = await getAllPokemons(url);
-      const resultsWithImages = await Promise.all(
-        response.results.map(async (pokemon: skipImage) => {
-          const pokemonDetails = await getPokemon(pokemon.url);
-          return {
-            name: pokemon.name,
-            image: pokemonDetails.sprites.front_default,
-            url: pokemon.url,
-          };
-        })
-      );
-      setPokemons(resultsWithImages);
-      setFilteredPokemons(resultsWithImages);
-
-      const limit = 20;
-      const total = Math.ceil(response.count / limit);
-      setTotalPages(total);
-      setNextUrl(response.next);
-      setPrevUrl(response.previous);
-
-      
+      while (nextUrl) {
+        const response = await getAllPokemons(nextUrl);
+  
+        const resultsWithImages = await Promise.all(
+          response.results.map(async (pokemon: Ipokemon) => {
+            const pokemonDetails = await getPokemon(pokemon.url);
+            return {
+              name: pokemon.name,
+              image: pokemonDetails.sprites.front_default,
+              url: pokemon.url,
+            };
+          })
+        );
+  
+        allPokemons.push(...resultsWithImages);
+  
+        nextUrl = response.next;
+      }
+  
+      setAllPokemons(allPokemons);
+      setFilteredPokemons(allPokemons);
+      setTotalPages(Math.ceil(allPokemons.length / itemsPerPage));
+      updateCurrentPokemons(allPokemons, 1);
       setLoading(false);
     } catch (error) {
       console.log("Error fetching pokemons:", error);
       toast.error("Ha ocurrido un error");
-      setPokemons([]);
       setLoading(false);
     }
-  }
+  };
+  
 
-  const timeout = () => {
-    setTimeout(() => {
-      setAlertShown(false);
-    }, 1000);
-  }
+  const updateCurrentPokemons = (pokemons: Ipokemon[], page: number) => {
+    const start = (page - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    setCurrentPokemons(pokemons.slice(start, end));
+  };
+
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.toLowerCase();
+    setText(value);
+
+    const filtered = allPokemons.filter((pokemon) =>
+      pokemon.name.toLowerCase().includes(value)
+    );
+    setFilteredPokemons(filtered);
+    setTotalPages(Math.ceil(filtered.length / itemsPerPage));
+    updateCurrentPokemons(filtered, 1);
+    setCurrentPage(1);
+  };
+
 
   const next = (url: string) => {
     getPokemon(url)
@@ -82,73 +98,50 @@ const Home = () => {
       });
   }
 
-  const OnGoBack = () => {
-    if (!prevUrl) {
-      if (!alertShown) {
-        toast.error('Has alcanzado el límite');
-        setAlertShown(true);
-        timeout();
-      }
-      return;
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      const nextPage = currentPage + 1;
+      setCurrentPage(nextPage);
+      updateCurrentPokemons(filteredPokemons, nextPage);
     }
+  };
 
-    const correctedUrl = prevUrl.replace(/limit=\d+/g, "limit=20");
-    fetchPokemosWithImages(correctedUrl);
-    setCurrentPage(currentPage - 1); 
-    setAlertShown(false);
-  }
 
-  const OnNext = () => {
-    if (!nextUrl) {
-      if (!alertShown) {
-        toast.error('Has alcanzado el límite');
-        setAlertShown(true);
-        timeout();
-      }
-      return;
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      const prevPage = currentPage - 1;
+      setCurrentPage(prevPage);
+      updateCurrentPokemons(filteredPokemons, prevPage);
     }
+  };
 
-    const correctedUrl = nextUrl.replace(/limit=\d+/g, "limit=20");
-    fetchPokemosWithImages(correctedUrl);
-    setCurrentPage(currentPage + 1);
-    setAlertShown(false);
-  }
-
-  const change = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toLowerCase();
-    setText(value);
-
-    const filtered = pokemons.filter((pokemon) =>
-      pokemon.name.toLowerCase().includes(value)
-    );
-    setFilteredPokemons(filtered);
-  }
 
   return (
     <sc.Container>
       {loading && <Loading />}
       <sc.ContainerSearch>
-        <Input value={text} onchange={(e) => change(e)} />
+        <Input value={text} onchange={(e) => handleSearch(e)} />
       </sc.ContainerSearch>
-      <sc.CardContainer className='hide-scroll' $length={!filteredPokemons.length}>
-        {!filteredPokemons.length && (
+      <sc.CardContainer className="hide-scroll" $length={!currentPokemons.length}>
+        {!currentPokemons.length && (
           <sc.NotData>
             <h1>Datos no encontrados</h1>
             <img src={pokebola} alt="pokebola" />
           </sc.NotData>
         )}
-        {filteredPokemons.map((pokemon) => (
+        {currentPokemons.map((pokemon) => (
           <Card pokemon={pokemon} next={next} key={pokemon.name} />
         ))}
       </sc.CardContainer>
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
-        OnGoBack={OnGoBack}
-        OnNext={OnNext}
+        OnGoBack={handlePrevPage}
+        OnNext={handleNextPage}
       />
     </sc.Container>
   );
-}
+};
 
 export default Home;
